@@ -48,19 +48,29 @@ void process_mask_initialize(cpu_set_t* process_mask){
 	CPU_SET(1, process_mask);
 	return;
 }
-
-
+int queue[1000];
+int first = 0, last = 0;
+void queue_pop(){
+	queue[first] = 0;
+	first++;
+	return;
+}
+void queue_push(int a){
+	queue[last] = a;
+	last++;
+}
 int next(int now_process, int N, int method){
 	if(method == 0){
 		// FIFO
 		if(now_process != -1) // The now_process hasnʼt finished yet.
 			return now_process;
-
-		for(int i = 0; i < N; i++){
+		static int i = 0;
+		while(i<N){
 			if(P[i].ready_time > atime)
 				break;
 			if(P[i].execution_time > 0)
 				return i;
+			i++;
 #ifdef DEBUG
 			fprintf(stderr, "i = %d\n", i);
 #endif
@@ -73,32 +83,33 @@ int next(int now_process, int N, int method){
 		if(now_process != -1){
 			if(atime - P[now_process].real_start_time >= Round_rubin_time){
 				
-				for(int i = now_process + 1; i < N; i++){
-					if(P[i].ready_time > atime)
-						break;
-					if(P[i].execution_time > 0){
-						P[i].real_start_time = atime;
-						return i;
-					}
+				if(first != last){
+					int a = queue[first];
+					P[a].real_start_time = atime;
+					queue_pop();
+					if(P[now_process].execution_time > 0)
+						queue_push(now_process);
+					return a;
+				}
+				else{
+					return now_process;
 				}
 				
-				for(int i = 0; i <= now_process; i++){
-					if(P[i].execution_time > 0){
-						P[i].real_start_time = atime;
-						return i;
-					}
-				}
-	
+
+
+
+
+
+
+
 			}
 
 			return now_process;
 		}
-
-		for(int i = 0; i < N; i++){
-			if(P[i].ready_time > atime)
-				break;
-			if(P[i].execution_time > 0)
-				return i;
+		if(first != last){
+			int j = queue[first];
+			queue_pop();
+			return j;
 		}
 
 		return -1;
@@ -169,19 +180,17 @@ void process_exec(int p_number){
 
 void process_block(int p_number){
 	struct sched_param param;
-	param.sched_priority = 1;
-	int i = sched_setscheduler(P[p_number].pid, SCHED_FIFO, &param);
+	param.sched_priority = 0;
+	int i = sched_setscheduler(P[p_number].pid, SCHED_IDLE, &param);
 
 	return;
 }
 int p = 0;
 void process_wake(int p_number){
 	struct sched_param param;
-	param.sched_priority = 99 - p;
+	param.sched_priority = 99;
 	sched_setscheduler(P[p_number].pid, SCHED_FIFO, &param);
-	if(p < 99)
-		p = 0;
-	p++;
+	
 	return;
 }
 
@@ -253,10 +262,10 @@ int main(){
 				if(ppid > 0){
 					process_block(i);
 					P[i].pid = ppid;
-
 					if(sched_setaffinity(ppid, sizeof(pro_mask), &pro_mask) == -1)
 						fprintf(stderr, "Process: set affinity failure!\n");
-
+					if(method == 1)
+						queue_push(i);
 
 
 
@@ -281,17 +290,13 @@ int main(){
 					P[i].real_start_time = atime;
 
 					
-					struct timespec ttime;
 					
 					unsigned long time1, time2;
-					syscall(336, time1 , time2, getpid(), 0);
+					syscall(333, time1 , time2, getpid(), 0);
 					//fprintf(stderr, "P[%d], start time = %lu.%lu\n", i, *time1, *time2);
 					
 					process_exec(i);
-					
-					
-
-					
+				
 					syscall(333, time1 , time2, &P[i].pid, 1);
 					//fprintf(stderr, "P[%d], terminal time = %lu.%lu\n", i, *time1, *time2);
 					exit(0);
@@ -304,6 +309,10 @@ int main(){
 		int next_process = next(now_process, N, method);
 #ifdef DEBUG
 		fprintf(stderr, "%d %d %d %d\n", next_process, run_process_number, atime, P[now_process].execution_time);
+		for(int k = first; k < last; k++){
+			fprintf(stderr, "%d ", queue[k]);
+		}
+		fprintf(stderr, "\n");
 #endif		
 		if(next_process != now_process){
 
